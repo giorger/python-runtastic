@@ -23,7 +23,7 @@ class Runtastic:
 	__sessions={}
 	
 	def __init__(self):
-		Runtastic.__config=ConfigurationObject("python-runtastic.ini")
+		Runtastic.__config=ConfigurationObject("python-runtastic.local")
 		
 	def login(self):
 		self.values = { Runtastic.__config.getValue("runtastic","header_username"): Runtastic.__config.getValue("runtastic-user-settings","userName"),
@@ -47,7 +47,7 @@ class Runtastic:
 			self.tmp=self.responseOutputXml.findall("./*/*/*/*/*/*/*/*[@method='post']/*/input[@name='authenticity_token']")
 			self.authenticity_token=self.tmp[0].get('value')
 			##
-			self.sessionDetails={"username": self.responseOutputJson['current_user']['slug'], "userid": self.responseOutputJson['current_user']['id'], "authenticityToken": self.authenticity_token}
+			self.sessionDetails={Runtastic.__config.getValue("python-runtastic","field_username"): self.responseOutputJson['current_user']['slug'], Runtastic.__config.getValue("python-runtastic","field_userid"): self.responseOutputJson['current_user']['id'], Runtastic.__config.getValue("python-runtastic","field_token"): self.authenticity_token}
 			self.sessionid=str(uuid.uuid4())
 			Runtastic.__sessions[self.sessionid]=self.sessionDetails
 			return self.sessionid
