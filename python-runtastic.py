@@ -74,7 +74,7 @@ class HTTPConnectionToRuntastic:
         """
 
         :param configuration: ConfigurationObject.
-        :return:
+        :return HTTPConnectionToRuntastic class object
         """
         self.config = configuration
         self.post_data = ""
@@ -93,6 +93,10 @@ class HTTPConnectionToRuntastic:
         }
 
     def connect_to_login_url(self):
+        """
+        Connects to runtastic and performs authentication. Returns raw response from the authentication
+        :return: HTTPResponse
+        """
         self.post_data = urllib.urlencode({self.config.RUNTASTIC_HDR_USERNAME: self.config.RUNTASTIC_USR_USERNAME,
                                            self.config.RUNTASTIC_HDR_PASSWORD: self.config.RUNTASTIC_USR_PASSWORD,
                                            self.config.RUNTASTIC_HDR_TOKEN: ""})
@@ -100,15 +104,27 @@ class HTTPConnectionToRuntastic:
         return self.conn.getresponse()
 
     def connect_to_logout_url(self):
+        """
+        Performs logout from runtastic
+        :return: HTTPResponse
+        """
         self.conn.request("GET", self.config.RUNTASTIC_URL_LOGOUT)
         return self.conn.getresponse()
 
     def connect_to_sport_session_url(self):
+        """
+        Performs connection to the sports url to retrieve session ids
+        :return: HTTPResponse
+        """
         self.sportUrl = self.sportUrl + self.username + self.config.RUNTASTIC_URL_SPORT_SESSION
         self.conn.request("GET", self.sportUrl)
         return self.conn.getresponse()
 
     def connect_to_sport_session_api(self):
+        """
+        Performs connection to the sports API to retrieve details for each session
+        :return: HTTPResponse
+        """
         self.post_data = urllib.urlencode({self.config.RUNTASTIC_HDR_UID: self.userid,
                                            self.config.RUNTASTIC_HDR_TOKEN: self.token,
                                            self.config.RUNTASTIC_HDR_ITEMS: self.activities_list})
@@ -134,10 +150,18 @@ class HTTPConnectionToRuntastic:
 
 
 class Runtastic:
+    """
+    Class containing all logic.
+    __sessions is a dictionary maintaining all available sessions
+    """
     __sessions = {}
 
     def __init__(self):
-        self.config = ConfigurationObject("python-runtastic.local")
+        """
+        Initialization
+        :return: Runtastic class object
+        """
+        self.config = ConfigurationObject("python-runtastic.ini")
         self.runtastic_connection = HTTPConnectionToRuntastic(self.config)
         self.runtastic_response = ""
         self.runtastic_response_json = ""
@@ -147,18 +171,32 @@ class Runtastic:
         self.all_sport_sessions = {}
 
     def parse_for_authenticity_token(self, json_message):
+        """
+        :param json_message: the HTTPResponse message in JSON format to parse
+        :return: String which is the token value
+        """
         self.runtastic_response_xml = xml.etree.ElementTree.fromstring(json_message['update'].
                                                                        replace("last_name}}}'>", "last_name}}}' />"))
         return (self.runtastic_response_xml.findall(
             "./*/*/*/*/*/*/*/*[@method='post']/*/input[@name='authenticity_token']"))[0].get('value')
 
     def parse_for_list_of_sessions(self, raw_message):
+        """
+
+        :param raw_message: HTTPResponse in String format
+        :return: the list of session ids concatenated with ',' (ie 1234,12345,565656,etc...)
+        """
         self.tmp = re.search("var index_data = (.*);", raw_message).group()
         self.tmp = re.search("\[\[.*\]\]", self.tmp).group()
         self.tmp = json.loads(self.tmp)
         return ",".join(str(self.keys[0]) for self.keys in self.tmp)
 
     def login(self, session_uuid):
+        """
+
+        :param session_uuid: UUID defining uniquely the session
+        :return: String, denoting the session id of the the logged session
+        """
         if session_uuid in Runtastic.__sessions:
             return session_uuid
         else:
@@ -177,6 +215,11 @@ class Runtastic:
                 return 0
 
     def logout(self, session_uuid):
+        """
+
+        :param session_uuid: String denoting which session to disconnect
+        :return: Boolean
+        """
         if session_uuid in Runtastic.__sessions:
             self.runtastic_response = self.runtastic_connection.submit_request(self.config.RUNTASTIC_URL_LOGOUT)
             if self.runtastic_response.status == 200 or self.runtastic_response.status == 302:
@@ -191,6 +234,11 @@ class Runtastic:
             return True
 
     def retrieve_all_sessions(self, session_uuid):
+        """
+
+        :param session_uuid: String denoting which session to look for recorded runtastic sessions
+        :return:
+        """
         if session_uuid in Runtastic.__sessions:
             self.runtastic_response = self.runtastic_connection.submit_request(self.config.RUNTASTIC_URL_SPORT_SESSION,
                                                                                (Runtastic.__sessions[session_uuid])
