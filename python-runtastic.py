@@ -169,7 +169,7 @@ class Runtastic:
         Initialization
         :return: Runtastic class object
         """
-        self.config = ConfigurationObject("python-runtastic.local")
+        self.config = ConfigurationObject("python-runtastic.ini")
         self.runtastic_connection = HTTPConnectionToRuntastic(self.config)
         self.runtastic_response = ""
         self.runtastic_response_json = ""
