@@ -23,12 +23,13 @@ SOFTWARE.
 """
 
 import ConfigParser
-import httplib
 import json
 import re
 import urllib
 import uuid
 import xml.etree.ElementTree
+
+import requests
 
 
 class ConfigurationObject:
@@ -56,6 +57,7 @@ class ConfigurationObject:
         self.RUNTASTIC_HDR_PASSWORD = self.conf_file.get("runtastic", "header_password")
         self.RUNTASTIC_HDR_TOKEN = self.conf_file.get("runtastic", "header_token")
         self.RUNTASTIC_HDR_UID = self.conf_file.get("runtastic", "header_user_id")
+        self.RUNTASTIC_HDR_COOKIE = "cookies"
         self.RUNTASTIC_HDR_ITEMS = self.conf_file.get("runtastic", "header_items")
         self.RUNTASTIC_USR_USERNAME = self.conf_file.get("runtastic-user-settings", "userName")
         self.RUNTASTIC_USR_PASSWORD = self.conf_file.get("runtastic-user-settings", "userPassword")
@@ -78,7 +80,7 @@ class HTTPConnectionToRuntastic:
         """
         self.config = configuration
         self.post_data = ""
-        self.conn = httplib.HTTPSConnection(self.config.RUNTASTIC_URL)
+        self.conn = ""
         self.sportUrl = self.config.RUNTASTIC_URL_USER
         self.headers = {"Content-type": "application/x-www-form-urlencoded", "Accept": "text/plain"}
         self.username = ""
@@ -100,16 +102,17 @@ class HTTPConnectionToRuntastic:
         self.post_data = urllib.urlencode({self.config.RUNTASTIC_HDR_USERNAME: self.config.RUNTASTIC_USR_USERNAME,
                                            self.config.RUNTASTIC_HDR_PASSWORD: self.config.RUNTASTIC_USR_PASSWORD,
                                            self.config.RUNTASTIC_HDR_TOKEN: ""})
-        self.conn.request("POST", self.config.RUNTASTIC_URL_LOGIN, self.post_data, self.headers)
-        return self.conn.getresponse()
+        self.conn = requests.post(self.config.RUNTASTIC_URL + self.config.RUNTASTIC_URL_LOGIN, self.post_data,
+                                  headers=self.headers)
+        return self.conn
 
     def connect_to_logout_url(self):
         """
         Performs logout from runtastic
         :return: HTTPResponse
         """
-        self.conn.request("GET", self.config.RUNTASTIC_URL_LOGOUT)
-        return self.conn.getresponse()
+        self.conn = requests.get(self.config.RUNTASTIC_URL + self.config.RUNTASTIC_URL_LOGOUT)
+        return self.conn
 
     def connect_to_sport_session_url(self):
         """
@@ -117,8 +120,9 @@ class HTTPConnectionToRuntastic:
         :return: HTTPResponse
         """
         self.sportUrl = self.sportUrl + self.username + self.config.RUNTASTIC_URL_SPORT_SESSION
-        self.conn.request("GET", self.sportUrl)
-        return self.conn.getresponse()
+        self.conn = requests.get(self.config.RUNTASTIC_URL + self.sportUrl, headers=self.headers,
+                                 cookies=self.hdr_cookies)
+        return self.conn
 
     def connect_to_sport_session_api(self):
         """
@@ -128,8 +132,9 @@ class HTTPConnectionToRuntastic:
         self.post_data = urllib.urlencode({self.config.RUNTASTIC_HDR_UID: self.userid,
                                            self.config.RUNTASTIC_HDR_TOKEN: self.token,
                                            self.config.RUNTASTIC_HDR_ITEMS: self.activities_list})
-        self.conn.request("POST", self.config.RUNTASTIC_URL_SESSIONS_API, self.post_data, self.headers)
-        return self.conn.getresponse()
+        self.conn = requests.post(self.config.RUNTASTIC_URL + self.config.RUNTASTIC_URL_SESSIONS_API, self.post_data,
+                                  headers=self.headers, cookies=self.hdr_cookies)
+        return self.conn
 
     def submit_request(self, target_url, *args):
         """
@@ -141,10 +146,13 @@ class HTTPConnectionToRuntastic:
         """
         if args.__len__() > 0:
             self.username = args[0]
-        if args.__len__() > 1:
-            self.userid = args[1]
-            self.token = args[2]
-            self.activities_list = args[3]
+        if args.__len__() == 2:
+            self.hdr_cookies = args[1]
+        else:
+            if args.__len__() > 1:
+                self.userid = args[1]
+                self.token = args[2]
+                self.activities_list = args[3]
         target_url_function = self.url_picker.get(target_url)
         return target_url_function()
 
@@ -161,7 +169,7 @@ class Runtastic:
         Initialization
         :return: Runtastic class object
         """
-        self.config = ConfigurationObject("python-runtastic.ini")
+        self.config = ConfigurationObject("python-runtastic.local")
         self.runtastic_connection = HTTPConnectionToRuntastic(self.config)
         self.runtastic_response = ""
         self.runtastic_response_json = ""
@@ -201,12 +209,13 @@ class Runtastic:
             return session_uuid
         else:
             self.runtastic_response = self.runtastic_connection.submit_request(self.config.RUNTASTIC_URL_LOGIN)
-            if self.runtastic_response.status == 200:
-                self.runtastic_response_json = json.loads(self.runtastic_response.read())
+            if self.runtastic_response.status_code == 200:
+                self.runtastic_response_json = self.runtastic_response.json()
                 self.session_details = {
                     self.config.RUNTASTIC_FLD_USERNAME: self.runtastic_response_json['current_user']['slug'],
                     self.config.RUNTASTIC_FLD_UID: self.runtastic_response_json['current_user']['id'],
-                    self.config.RUNTASTIC_FLD_TOKEN: self.parse_for_authenticity_token(self.runtastic_response_json)}
+                    self.config.RUNTASTIC_FLD_TOKEN: self.parse_for_authenticity_token(self.runtastic_response_json),
+                    self.config.RUNTASTIC_HDR_COOKIE: dict(self.runtastic_response.cookies)}
                 self.tmp = str(uuid.uuid4())
                 Runtastic.__sessions[self.tmp] = self.session_details
                 return self.tmp
@@ -222,12 +231,12 @@ class Runtastic:
         """
         if session_uuid in Runtastic.__sessions:
             self.runtastic_response = self.runtastic_connection.submit_request(self.config.RUNTASTIC_URL_LOGOUT)
-            if self.runtastic_response.status == 200 or self.runtastic_response.status == 302:
+            if self.runtastic_response.status_code == 200 or self.runtastic_response.status_code == 302:
                 del Runtastic.__sessions[session_uuid]
                 print "Signed out"
                 return True
             else:
-                print (str(self.runtastic_response.status) + "   " + str(self.runtastic_response.reason) + str(
+                print (str(self.runtastic_response.status_code) + "   " + str(self.runtastic_response.reason) + str(
                     self.runtastic_response.getheader("Location")))
                 return False
         else:
@@ -242,8 +251,10 @@ class Runtastic:
         if session_uuid in Runtastic.__sessions:
             self.runtastic_response = self.runtastic_connection.submit_request(self.config.RUNTASTIC_URL_SPORT_SESSION,
                                                                                (Runtastic.__sessions[session_uuid])
-                                                                               [self.config.RUNTASTIC_FLD_USERNAME])
-            if self.runtastic_response.status == 200:
+                                                                               [self.config.RUNTASTIC_FLD_USERNAME],
+                                                                               (Runtastic.__sessions[session_uuid])
+                                                                               [self.config.RUNTASTIC_HDR_COOKIE])
+            if self.runtastic_response.status_code == 200:
                 self.runtastic_response = \
                     self.runtastic_connection.submit_request(self.config.RUNTASTIC_URL_SESSIONS_API,
                                                              (Runtastic.__sessions[session_uuid])
@@ -253,18 +264,25 @@ class Runtastic:
                                                              (Runtastic.__sessions[session_uuid])
                                                              [self.config.RUNTASTIC_FLD_TOKEN],
                                                              self.parse_for_list_of_sessions(
-                                                                 self.runtastic_response.read()))
-                if self.runtastic_response.status == 200:
-                    self.runtastic_response_json = json.loads(self.runtastic_response.read())
+                                                                 self.runtastic_response.text))
+                if self.runtastic_response.status_code == 200:
+                    self.runtastic_response_json = self.runtastic_response.json()
                     for self.session in self.runtastic_response_json:
                         self.all_sport_sessions[self.session['id']] = self.session
                         (Runtastic.__sessions[session_uuid])[self.config.RUNTASTIC_FLD_SPORT_SESSIONS] = \
                             self.all_sport_sessions
+                    return (Runtastic.__sessions[session_uuid])[self.config.RUNTASTIC_FLD_SPORT_SESSIONS]
         else:
             print ("Error")
+            return 0
 
+    def numberOfSessions(self, session_uid):
+        if session_uid in Runtastic.__sessions:
+            print "Number of sessions: " + str(
+                len(Runtastic.__sessions[session_uid][self.config.RUNTASTIC_FLD_SPORT_SESSIONS]))
 
 myConnection = Runtastic()
 mySessionId = myConnection.login('')
 myConnection.retrieve_all_sessions(mySessionId)
+myConnection.numberOfSessions(mySessionId)
 myConnection.logout(mySessionId)
