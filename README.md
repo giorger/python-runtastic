@@ -31,7 +31,10 @@ TODO
 
 
 ## Installation
-Download, change the values for Runtastic username/password and execute
+1. Download, 
+2. In python-runtastic.ini adjust the [runtastic-user-settings] area where
+    userName = <yourusername@email.com>
+    userPassword = <yourpassword>
 
 ## License
 The MIT License (MIT)
